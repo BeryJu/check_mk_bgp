@@ -1,0 +1,285 @@
+#!/usr/bin/python
+# -*- encoding: utf-8; py-indent-offset: 4 -*-
+
+###############################################################################
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+###############################################################################
+
+###############################################################################
+# Author: Thomas Wollner (tw@wollner-net.de)
+# Updated for CheckMK 2.0: Jens Langhammer (jens@beryju.org)
+###############################################################################
+
+# Example Agent Output:
+# BGP4-MIB
+
+# .1.3.6.1.2.1.15.3.1.1.192.168.254.2 = IpAddress: 192.168.254.2
+# .1.3.6.1.2.1.15.3.1.2.192.168.254.2 = INTEGER: 3
+# .1.3.6.1.2.1.15.3.1.3.192.168.254.2 = INTEGER: 2
+# .1.3.6.1.2.1.15.3.1.4.192.168.254.2 = INTEGER: 4
+# .1.3.6.1.2.1.15.3.1.5.192.168.254.2 = IpAddress: 0.0.0.0
+# .1.3.6.1.2.1.15.3.1.7.192.168.254.2 = IpAddress: 192.168.254.2
+# .1.3.6.1.2.1.15.3.1.9.192.168.254.2 = INTEGER: 65301
+# .1.3.6.1.2.1.15.3.1.10.192.168.254.2 = Counter32: 0
+# .1.3.6.1.2.1.15.3.1.11.192.168.254.2 = Counter32: 5
+# .1.3.6.1.2.1.15.3.1.14.192.168.254.2 = Hex-STRING: 04 00
+# .1.3.6.1.2.1.15.3.1.16.192.168.254.2 = Gauge32: 6586822
+###############################################################################
+
+bgp_peer_inventory_adminstates = [2]
+
+factory_settings["bgp_peer_default_levels"] = {
+    "ok_states": [6],
+    "warning_states": [2, 3, 4, 5],
+    "critical_states": [1],
+}
+
+
+def inventory_bgp_peer(info):
+
+    if len(info) != 1:
+        return
+
+    inventory = []
+
+    for (
+        idx,
+        identifier,
+        peerstate,
+        adminstate,
+        version,
+        localaddr,
+        remoteaddr,
+        remoteas,
+        peerinupdates,
+        peeroutupdates,
+        lasterror,
+        peeresttime,
+    ) in info[0]:
+        if saveint(adminstate) in bgp_peer_inventory_adminstates:
+            inventory.append((remoteaddr, {}))
+    return inventory
+
+
+def sec2hr(seconds):
+    m, s = divmod(seconds, 60)
+    h, m = divmod(m, 60)
+    d, h = divmod(h, 24)
+    hr = "%dd %02dh %02dm %02ds" % (d, h, m, s)
+    return hr
+
+
+def bgp_peerstate(st):
+    names = {
+        "0": "none",
+        "1": "idle",
+        "2": "connect",
+        "3": "active",
+        "4": "opensnet",
+        "5": "openconfirm",
+        "6": "established",
+    }
+    return names.get(st, st)
+
+
+def bgp_adminstate(st):
+    names = {
+        "1": "stop",
+        "2": "start",
+    }
+    return names.get(st, st)
+
+
+def bgp_errors(key1, key2):
+    names = {}
+    names["0"] = {"0": "NO ERROR"}
+    names["1"] = {
+        "0": "Message",
+        "2": "Connection Not Synchronized",
+        "3": "Bad Message Length",
+        "4": "Bad Message Type",
+    }
+    names["2"] = {
+        "0": "OPEN",
+        "1": "Unsupported Version Number",
+        "2": "Bad Peer AS",
+        "3": "Bad BGP Identifier",
+        "4": "Unsupported Optional Parameter",
+        "5": "Authentication Failure",
+        "6": "Unacceptable Hold",
+    }
+    names["3"] = {
+        "0": "UPDATE",
+        "1": "Malformed Attribute List",
+        "2": "Unrecognized Well-known Attribute",
+        "3": "Missing Well-known Attribute",
+        "4": "Attribute Flags Error",
+        "5": "Attribute Length Error",
+        "6": "Invalid ORIGIN Attribute",
+        "7": "AS Routing Loop",
+        "8": "Invalid NEXT_HOP Attribute",
+        "9": "Optional Attribute Error",
+        "10": "Invalid Network Field",
+        "11": "Malformed AS_PATH",
+    }
+    names["4"] = {
+        "0": "Hold Timer Expired",
+    }
+
+    names["5"] = {
+        "0": "Finite State Machine Error",
+    }
+
+    names["6"] = {
+        "0": "Administratively Shutdown",
+        "1": "Max Prefix Reached",
+        "2": "Peer Unconfigured",
+        "3": "Administratively Reset",
+        "4": "Connection Rejected",
+        "5": "Other Configuration Change",
+    }
+    return names[key1].get(key2)
+
+
+def ByteToHex(byteStr):
+    return "".join(["%02X " % ord(x) for x in byteStr]).strip()
+
+
+def check_bgp_peer(item, params, info):
+    if len(info) != 1:
+        return ("3", "Invalid output from agent")
+
+    for (
+        idx,
+        identifier,
+        peerstate,
+        adminstate,
+        version,
+        localaddr,
+        remoteaddr,
+        remoteas,
+        peerinupdates,
+        peeroutupdates,
+        lasterror,
+        peeresttime,
+    ) in info[0]:
+
+        if remoteaddr == item:
+
+            output = "BGP Peer: %s Adminstate: %s " % (
+                identifier,
+                bgp_adminstate(str(adminstate)),
+            )
+
+            lasterrorhex = ByteToHex(lasterror)
+            byte1, byte2 = lasterrorhex.split()
+            lerr = int(byte1, 16)
+            lsuberr = int(byte2, 16)
+            lasterrorstr = bgp_errors(str(lerr), str(lsuberr))
+            peeresttimehr = sec2hr(int(peeresttime))
+
+            if saveint(peerstate) in params["critical_states"]:
+                severity = "CRITICAL"
+                returncode = 2
+                output += (
+                    "PeerState: %s(!!) Version: %s LocalAddr: %s \
+                           RemoteAddr: %s RemoteAS: %s LastError: %s PeerEstablishedTime: %s"
+                    % (
+                        bgp_peerstate(str(peerstate)),
+                        version,
+                        localaddr,
+                        remoteaddr,
+                        remoteas,
+                        lasterrorstr,
+                        peeresttimehr,
+                    )
+                )
+
+            elif saveint(peerstate) in params["warning_states"]:
+                severity = "WARNING"
+                returncode = 1
+                output += (
+                    "PeerState: %s(!) Version: %s LocalAddr: %s \
+                           RemoteAddr: %s RemoteAS: %s LastError: %s PeerEstablishedTime: %s"
+                    % (
+                        bgp_peerstate(str(peerstate)),
+                        version,
+                        localaddr,
+                        remoteaddr,
+                        remoteas,
+                        lasterrorstr,
+                        peeresttimehr,
+                    )
+                )
+
+            elif saveint(peerstate) in params["ok_states"]:
+                severity = "OK"
+                returncode = 0
+                output += (
+                    "PeerState: %s Version: %s LocalAddr: %s \
+                           RemoteAddr: %s RemoteAS: %s LastError: %s PeerEstablishedTime: %s"
+                    % (
+                        bgp_peerstate(str(peerstate)),
+                        version,
+                        localaddr,
+                        remoteaddr,
+                        remoteas,
+                        lasterrorstr,
+                        peeresttimehr,
+                    )
+                )
+            else:
+                severity = "UNKNOWN"
+                returncode = 3
+                output = "Invalid Output from Agent"
+
+            perfdata = [
+                ("peerinupdates", peerinupdates, None, None),
+                ("peeroutupdates", peeroutupdates, None, None),
+            ]
+
+            infotext = severity + " - " + output
+            return (returncode, infotext, perfdata)
+
+    return (3, "UNKNOWN - item not found in snmp data")
+
+
+check_info["bgp_peer"] = {
+    "inventory_function": inventory_bgp_peer,
+    "check_function": check_bgp_peer,
+    "service_description": "BGP %s",
+    "has_perfdata": True,
+    "group": "bgp",
+    "snmp_info": [
+        (
+            ".1.3.6.1.2.1.15.3.1",
+            [
+                OID_END,
+                1,  # "bgpPeerIdentifier"
+                2,  # "bgpPeerState"
+                3,  # "bgpPeerAdminStatus"
+                4,  # "bgpPeerNegotiatedVersion"
+                5,  # "bgpPeerLocalAddr"
+                7,  # "bgpPeerRemoteAddr"
+                9,  # "bgpPeerRemoteAs"
+                10,  # "bgpPeerInUpdates"
+                11,  # "bgpPeerOutUpdates"
+                14,  # "bgpPeerLastError"
+                16,  # "bgpPeerFsmEstablishedTime"
+            ],
+        )
+    ],
+    "default_levels_variable": "bgp_peer_default_levels",
+    "snmp_scan_function": lambda oid: oid(".1.3.6.1.2.1.15.3.*"),
+}

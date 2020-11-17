@@ -1,0 +1,82 @@
+title: BGP Peer State Monitoring
+agents: snmp
+author: Thomas Wollner
+license: GPLv3
+distribution: check_mk
+description:
+ This check monitors the BGP Peer State using BGP peer table of BGP4-MIB.
+
+ With applied factory_settings the peer gets a {critical} state if peerstate is {idle}
+ and a {warning} state if peerstate is {not in state established}. This behaviour can be configured via check_parameters.
+
+ The check output reports the following MIB Objects:
+
+
+ {BGP Peer:}
+  The BGP Identifier of this entry's BGP peer. This entry MUST be 0.0.0.0 unless the bgpPeerState is in the openconfirm or the established state.
+
+
+ {Adminstate:}
+  The desired state of the BGP connection. A transition from 'stop' to 'start' will cause the BGP Manual Start Event to be generated. A transition from 'start' to 'stop' will
+  cause the BGP Manual Stop Event to be generated. This parameter can be used to restart BGP peer connections.
+  Care should be used in providing write access to this object without adequate authentication.
+
+
+ {Peerstate:}
+  The BGP peer connection state. Possible values are:
+
+  -- idle(1), connect(2), active(3), opensent(4), openconfirm(5), established(6)
+
+
+ {Version:}
+ The negotiated version of BGP running between the two peers. This entry MUST be zero (0) unless the bgpPeerState is in the openconfirm or the
+ established state. Note that legal values for this object are between 0 and 255.
+
+
+ {LocalAddr:}
+ The local IP address of this entry's BGP connection.
+
+
+ {RemoteAddr:}
+ The remote IP address of this entry's BGP peer.
+
+
+ {RemoteAS:}
+   The remote autonomous system number received in the BGP OPEN message. Reference: RFC 4271, Section 4.2.
+
+
+ {LastError:}
+   The last error code and subcode seen by this peer on this connection.  If no error has  occurred, this field is zero.  Otherwise, the
+   first byte of this two byte OCTET STRING contains the error code, and the second byte contains the subcode. Reference: RFC 4271, Section 4.5.
+
+
+
+perfdata:
+  {peerinupdates:}
+     The number of BGP UPDATE messages received on this connection. Reference: RFC 4271, Section 4.3.
+
+  {peeroutupdates:}
+     The number of BGP UPDATE messages transmitted on this connection. Reference: RFC 4271, Section 4.3.
+
+
+
+
+item:
+  The BGP Peer Remoteaddress
+
+
+inventory:
+  Inventory is supported. All BGP Peers with adminstate start will be inventorized. This can be configured via bgp_peer_inventory_adminstates in main.mk.
+  Default is bgp_peer_inventory_adminstates = [ 2 ].
+
+
+parameters:
+  Dictionary based parameter is supported. You can define which peerstate results in which nagios state
+  ok_states
+  warning_states
+  critical_states
+
+  example:
+  check_parameters += [
+	( {"ok_states" : [ 6 ], "warning_states" : [ 2, 3, 5 ], "critical_states" : [ 1 ]}, [yourRouter], ["BGP\sPeer.*"] )
+  ]
